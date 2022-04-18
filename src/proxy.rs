@@ -4,13 +4,13 @@ use std::path::PathBuf;
 
 use crate::db::{Database, Team};
 use crate::pdf::process_pjl_message;
-use actix_web::{web, HttpRequest, HttpResponse};
+use actix_web::{web, HttpRequest, HttpResponse, HttpResponseBuilder};
 use anyhow::{anyhow, Error};
 use ipp::parser::IppParser;
 use ipp::prelude::*;
 use ipp::reader::IppReader;
 use reqwest::header::HeaderMap;
-use reqwest::RequestBuilder;
+use reqwest::{RequestBuilder, StatusCode};
 
 #[derive(Debug, Clone)]
 pub struct ProxyOptions {
@@ -40,11 +40,11 @@ pub async fn process(
     if parsed.header().operation_or_status == Operation::SendDocument as u16 {
         patch_send_document_message(&mut parsed, &db, &team, &options).await?;
     }
-    let (mut ipp_response, headers) =
+    let (mut ipp_response, headers, status_code) =
         forward_to_upstream_printer(parsed, req, ipp_upstream).await?;
     patch_ipp_supported_features(&mut ipp_response);
 
-    let mut http_response = HttpResponse::Ok();
+    let mut http_response = HttpResponseBuilder::new(status_code);
     for (name, value) in headers {
         if let Some(name) = name {
             http_response.insert_header((name, value));
@@ -138,15 +138,15 @@ async fn forward_to_upstream_printer(
     message: IppRequestResponse,
     http_request: HttpRequest,
     upstream_printer: &str,
-) -> Result<(IppRequestResponse, HeaderMap), Error> {
+) -> Result<(IppRequestResponse, HeaderMap, StatusCode), Error> {
     // Send the request to the upstream printer.
     let request = build_upstream_http_request(message, http_request, upstream_printer)?;
-    let response = request.send().await?;
-    let headers = response.headers().clone();
-    let body = response.bytes().await?;
+    let http_response = request.send().await?;
+    let status = http_response.status();
+    let headers = http_response.headers().clone();
+    let body = http_response.bytes().await?;
     // TODO: patch the response setting the printer-uri of the proxy (http_request.uri())
     let parser = IppParser::new(Cursor::new(body));
     let response = parser.parse()?;
-
-    Ok((response, headers))
+    Ok((response, headers, status))
 }
