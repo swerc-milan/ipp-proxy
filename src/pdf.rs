@@ -129,20 +129,7 @@ async fn add_page_watermark(
     let font_size = 12;
     let position_x = 50;
     let position_y = 20;
-    let team_name = if team.team_name.len() < 30 {
-        &team.team_name
-    } else {
-        &team.team_name[..30]
-    };
-    let text = format!(
-        "{} - Page {} of {} - Team {}",
-        team.location,
-        page + 1,
-        num_pages,
-        team_name
-    )
-    .replace(')', "\\)")
-    .replace('(', "\\(");
+    let text = page_text(team, page, num_pages);
 
     let header_path = target.with_extension("header.pdf");
     let rotated_target = header_path.with_extension("rotated.pdf");
@@ -189,6 +176,25 @@ async fn add_page_watermark(
     }
 
     Ok(())
+}
+
+fn page_text(team: &Team, page: usize, num_pages: usize) -> String {
+    let name_limit = 30;
+    let team_name = if team.team_name.len() < name_limit {
+        format!("\"{}\"", team.team_name)
+    } else {
+        format!("\"{}...\"", &team.team_name[..name_limit])
+    };
+    let text = format!(
+        "{} - Page {} of {} - Team {}",
+        team.location,
+        page + 1,
+        num_pages,
+        team_name
+    )
+    .replace(')', "\\)")
+    .replace('(', "\\(");
+    text
 }
 
 async fn merge_pdf(paths: &[PathBuf], target: &Path) -> Result<(), Error> {
