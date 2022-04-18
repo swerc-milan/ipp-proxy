@@ -73,3 +73,7 @@ Add a new printer with the following settings:
 - Name: you can choose it, it will be shown in the print menu
 - Make: `Generic`
 - Model: `Generic PDF Printer`
+
+## Example output
+
+![image](https://user-images.githubusercontent.com/6685454/163812355-1fe28d4b-e1f9-4efa-9cb1-13b615464da6.png)
