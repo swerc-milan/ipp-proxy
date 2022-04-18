@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use crate::db::{Database, Db};
 use actix_web::middleware::Logger;
-use actix_web::web::Data;
+use actix_web::web::{Data, PayloadConfig};
 use actix_web::{route, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use clap::Parser;
 use sqlx::sqlite::SqlitePoolOptions;
@@ -93,6 +93,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(Logger::default())
             .app_data(Data::new(pool.clone()))
             .app_data(Data::new(proxy_options.clone()))
+            .app_data(PayloadConfig::new(20 * 1024 * 1024))
             .service(index)
     })
     .bind((args.host, args.port))?
