@@ -15,3 +15,6 @@ CREATE TABLE jobs (
     process_time_ms INT,
     failed BOOLEAN DEFAULT false
 );
+
+INSERT INTO teams (team_id, team_name, location, password, ipp_upstream)
+VALUES ("edomora97", "Edoardo's team", "B6.2.6 - Row 3 - PC 1", "edoedoedo", "localhost:631/printers/Virtual_PDF_Printer");

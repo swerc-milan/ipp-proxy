@@ -15,20 +15,21 @@ use crate::proxy::{process, ProxyOptions};
 mod db;
 mod proxy;
 
-#[route("/", method = "POST")]
+#[route("/{tail}*", method = "POST")]
 async fn index(
     db: web::Data<Db>,
-    query: web::Query<HashMap<String, String>>,
+    path: web::Path<(String,)>,
     body: web::Bytes,
     req: HttpRequest,
     options: Data<ProxyOptions>,
 ) -> impl Responder {
+    let params = parse_uri_path(&path.0);
     let database = Database::new(&db);
     let peer_addr = match req.peer_addr() {
         Some(peer_ip) => peer_ip,
         None => return HttpResponse::BadRequest().body("Cannot get client ip"),
     };
-    let password = query.0.get("password").map(|s| s.as_ref());
+    let password = params.get("password").map(|s| s.as_ref());
     let team = match database.get_team(peer_addr.ip(), password).await {
         Ok(team) => team,
         Err(e) => {
@@ -37,9 +38,21 @@ async fn index(
         }
     };
 
-    process(database, team, body, req, options)
+    process(database, team, req, body, &options)
         .await
         .unwrap_or_else(|e| HttpResponse::InternalServerError().body(e.to_string()))
+}
+
+fn parse_uri_path(path: &str) -> HashMap<String, String> {
+    path.split('/')
+        .flat_map(|piece| {
+            if let Some((key, value)) = piece.split_once('=') {
+                Some((key.to_string(), value.to_string()))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 #[derive(Parser)]
@@ -50,10 +63,7 @@ struct Args {
     /// Port this proxy listens from.
     #[clap(long, short, default_value_t = 6632)]
     port: u16,
-    /// Upstream printer (e.g. localhost:631/printers/Virtual_PDF_Printer)
-    #[clap(long, short)]
-    upstream: String,
-    /// Upstream printer (e.g. localhost:631/printers/Virtual_PDF_Printer)
+    /// Path to the database file.
     #[clap(long, short, default_value = "./db.sqlite3")]
     database: String,
 }
@@ -62,14 +72,7 @@ struct Args {
 async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
     let args = Args::parse();
-    info!(
-        "Starting at ipp://{}:{}/ -> ipp://{}",
-        args.host, args.port, args.upstream
-    );
-
-    let proxy_options = ProxyOptions {
-        upstream: args.upstream,
-    };
+    info!("Starting at ipp://{}:{}/", args.host, args.port);
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
@@ -77,11 +80,12 @@ async fn main() -> std::io::Result<()> {
         .await
         .expect("Failed to connect to db");
 
+    let proxy_options = ProxyOptions {};
     HttpServer::new(move || {
         App::new()
             .wrap(Logger::default())
-            .app_data(Data::new(proxy_options.clone()))
             .app_data(Data::new(pool.clone()))
+            .app_data(Data::new(proxy_options.clone()))
             .service(index)
     })
     .bind((args.host, args.port))?

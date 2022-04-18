@@ -2,7 +2,6 @@ use std::io::Cursor;
 use std::io::Read;
 
 use crate::db::{Database, Team};
-use actix_web::web::Data;
 use actix_web::{web, HttpRequest, HttpResponse};
 use anyhow::{anyhow, Error};
 use ipp::parser::IppParser;
@@ -12,16 +11,14 @@ use reqwest::header::HeaderMap;
 use reqwest::RequestBuilder;
 
 #[derive(Debug, Clone)]
-pub struct ProxyOptions {
-    pub upstream: String,
-}
+pub struct ProxyOptions {}
 
 pub async fn process(
     db: Database<'_>,
     team: Team,
-    body: web::Bytes,
     req: HttpRequest,
-    options: Data<ProxyOptions>,
+    body: web::Bytes,
+    options: &ProxyOptions,
 ) -> Result<HttpResponse, Error> {
     let reader = body.as_ref().to_vec();
     let reader = IppReader::new(Cursor::new(reader));
@@ -34,9 +31,9 @@ pub async fn process(
         operation, team.team_id, team.team_name
     );
 
-    patch_ipp_printer_uri(&mut parsed, &options.upstream);
-    let (ipp_response, headers) =
-        forward_to_upstream_printer(parsed, req, &options.upstream).await?;
+    let ipp_upstream = &team.ipp_upstream;
+    patch_ipp_printer_uri(&mut parsed, ipp_upstream);
+    let (ipp_response, headers) = forward_to_upstream_printer(parsed, req, ipp_upstream).await?;
 
     let mut http_response = HttpResponse::Ok();
     for (name, value) in headers {
@@ -94,7 +91,7 @@ async fn forward_to_upstream_printer(
     let response = request.send().await?;
     let headers = response.headers().clone();
     let body = response.bytes().await?;
-    // TODO: patch the response setting the printer-uri of the proxy
+    // TODO: patch the response setting the printer-uri of the proxy (http_request.uri())
     let parser = IppParser::new(Cursor::new(body));
     let response = parser.parse()?;
 
