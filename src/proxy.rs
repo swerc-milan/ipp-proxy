@@ -1,7 +1,9 @@
 use std::io::Cursor;
 use std::io::Read;
+use std::path::PathBuf;
 
 use crate::db::{Database, Team};
+use crate::pdf::process_pjl_message;
 use actix_web::{web, HttpRequest, HttpResponse};
 use anyhow::{anyhow, Error};
 use ipp::parser::IppParser;
@@ -11,7 +13,9 @@ use reqwest::header::HeaderMap;
 use reqwest::RequestBuilder;
 
 #[derive(Debug, Clone)]
-pub struct ProxyOptions {}
+pub struct ProxyOptions {
+    pub jobs_dir: PathBuf,
+}
 
 pub async fn process(
     db: Database<'_>,
@@ -33,7 +37,12 @@ pub async fn process(
 
     let ipp_upstream = &team.ipp_upstream;
     patch_ipp_printer_uri(&mut parsed, ipp_upstream);
-    let (ipp_response, headers) = forward_to_upstream_printer(parsed, req, ipp_upstream).await?;
+    if parsed.header().operation_or_status == Operation::SendDocument as u16 {
+        patch_send_document_message(&mut parsed, &db, &team, &options).await?;
+    }
+    let (mut ipp_response, headers) =
+        forward_to_upstream_printer(parsed, req, ipp_upstream).await?;
+    patch_ipp_supported_features(&mut ipp_response);
 
     let mut http_response = HttpResponse::Ok();
     for (name, value) in headers {
@@ -57,6 +66,50 @@ fn patch_ipp_printer_uri(request: &mut IppRequestResponse, upstream_printer: &st
             }
         }
     }
+}
+
+fn patch_ipp_supported_features(response: &mut IppRequestResponse) {
+    let attrs = response.attributes_mut();
+    for group in attrs.groups_mut() {
+        if group.tag() != DelimiterTag::PrinterAttributes {
+            continue;
+        }
+        for attr in group.attributes_mut().values_mut() {
+            // We only support uncompressed payloads.
+            if attr.name() == IppAttribute::COMPRESSION_SUPPORTED {
+                *attr = IppAttribute::new(
+                    IppAttribute::COMPRESSION_SUPPORTED,
+                    IppValue::Array(vec![IppValue::Keyword("none".to_string())]),
+                )
+            }
+        }
+    }
+}
+
+async fn patch_send_document_message(
+    message: &mut IppRequestResponse,
+    db: &Database<'_>,
+    team: &Team,
+    options: &ProxyOptions,
+) -> Result<(), Error> {
+    let job = db.new_job(team).await?;
+    let mut data = Vec::new();
+    message.payload_mut().read_to_end(&mut data)?;
+    let new_payload = match process_pjl_message(db, team, &job, &data, &options.jobs_dir).await {
+        Ok(new_payload) => new_payload,
+        Err(e) => {
+            error!(
+                "Failed to process payload of team {}: {:?}",
+                team.team_id, e
+            );
+            db.fail_job(&job).await?;
+            return Err(e);
+        }
+    };
+
+    *message.payload_mut() = IppPayload::new(Cursor::new(new_payload));
+
+    Ok(())
 }
 
 fn build_upstream_http_request(

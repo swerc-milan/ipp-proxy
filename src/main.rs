@@ -2,6 +2,7 @@
 extern crate log;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use crate::db::{Database, Db};
 use actix_web::middleware::Logger;
@@ -13,6 +14,7 @@ use sqlx::sqlite::SqlitePoolOptions;
 use crate::proxy::{process, ProxyOptions};
 
 mod db;
+mod pdf;
 mod proxy;
 
 #[route("/{tail}*", method = "POST")]
@@ -66,12 +68,15 @@ struct Args {
     /// Path to the database file.
     #[clap(long, short, default_value = "./db.sqlite3")]
     database: String,
+    /// Path to store the jobs.
+    #[clap(long, short, default_value = "./jobs")]
+    jobs_dir: PathBuf,
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
-    let args = Args::parse();
+    let args: Args = Args::parse();
     info!("Starting at ipp://{}:{}/", args.host, args.port);
 
     let pool = SqlitePoolOptions::new()
@@ -80,7 +85,9 @@ async fn main() -> std::io::Result<()> {
         .await
         .expect("Failed to connect to db");
 
-    let proxy_options = ProxyOptions {};
+    let proxy_options = ProxyOptions {
+        jobs_dir: args.jobs_dir,
+    };
     HttpServer::new(move || {
         App::new()
             .wrap(Logger::default())
