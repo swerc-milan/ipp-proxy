@@ -72,13 +72,11 @@ async fn patch_pdf(
     team: &Team,
     job: &Job,
 ) -> Result<(), Error> {
-    let document = lopdf::Document::load(&source)?;
-    let num_pages = document.get_pages().len();
-
+    let start = std::time::Instant::now();
+    let pages = split_pdf_pages(source).await?;
+    let num_pages = pages.len();
     db.set_pages(job, num_pages).await?;
 
-    let start = std::time::Instant::now();
-    let pages = split_pdf_pages(source, num_pages).await?;
     let targets: Vec<_> = pages
         .iter()
         .map(|path| path.with_extension("patched.pdf"))
@@ -101,7 +99,7 @@ async fn patch_pdf(
     Ok(())
 }
 
-async fn split_pdf_pages(source: &Path, num_pages: usize) -> Result<Vec<PathBuf>, Error> {
+async fn split_pdf_pages(source: &Path) -> Result<Vec<PathBuf>, Error> {
     let dir = source.parent().unwrap();
     let pattern = dir.join("page-%d.pdf");
     let mut child = Command::new("pdftk")
@@ -114,9 +112,10 @@ async fn split_pdf_pages(source: &Path, num_pages: usize) -> Result<Vec<PathBuf>
     if !exit_code.success() {
         bail!("Failed to split pages");
     }
-    Ok((1..(num_pages + 1))
-        .map(|p| dir.join(format!("page-{}.pdf", p)))
-        .collect())
+    let pages = glob::glob(dir.join("page-*.pdf").to_string_lossy().as_ref())?
+        .flatten()
+        .collect();
+    Ok(pages)
 }
 
 async fn add_page_watermark(
