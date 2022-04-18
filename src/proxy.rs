@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use std::io::Cursor;
 use std::io::Read;
 
+use crate::db::{Database, Team};
 use actix_web::web::Data;
 use actix_web::{web, HttpRequest, HttpResponse};
 use anyhow::{anyhow, Error};
@@ -17,7 +17,8 @@ pub struct ProxyOptions {
 }
 
 pub async fn process(
-    query: web::Query<HashMap<String, String>>,
+    db: Database<'_>,
+    team: Team,
     body: web::Bytes,
     req: HttpRequest,
     options: Data<ProxyOptions>,
@@ -28,9 +29,12 @@ pub async fn process(
 
     let operation = Operation::try_from(parsed.header().operation_or_status)
         .map_err(|_| anyhow!("Invalid op"))?;
-    debug!("{:?} received from {:?}", operation, req.peer_addr());
+    debug!(
+        "{:?} received from team {} ({})",
+        operation, team.team_id, team.team_name
+    );
 
-    patch_ipp_message(&mut parsed, &options.upstream);
+    patch_ipp_printer_uri(&mut parsed, &options.upstream);
     let (ipp_response, headers) =
         forward_to_upstream_printer(parsed, req, &options.upstream).await?;
 
@@ -44,7 +48,7 @@ pub async fn process(
 }
 
 /// Patch the printer-uri attribute setting the correct upstream URI.
-fn patch_ipp_message(request: &mut IppRequestResponse, upstream_printer: &str) {
+fn patch_ipp_printer_uri(request: &mut IppRequestResponse, upstream_printer: &str) {
     let attrs = request.attributes_mut();
     for group in attrs.groups_mut() {
         for attr in group.attributes_mut().values_mut() {

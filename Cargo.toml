@@ -2,8 +2,7 @@
 name = "ipp-proxy"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+default-run = "ipp-proxy"
 
 [dependencies]
 ipp = "3.0.2"
@@ -14,3 +13,10 @@ env_logger = "0.9.0"
 reqwest = "0.11.10"
 anyhow = "1"
 clap = { version = "3", features = ["derive"] }
+sqlx = { version = "0.5", features = [ "runtime-actix-native-tls" , "sqlite" ] }
+serde = { version = "1", features = ["derive"] }
+
+[[bin]]
+name = "ipp-proxy"
+path = "src/main.rs"
+
