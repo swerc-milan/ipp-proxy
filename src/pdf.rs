@@ -101,7 +101,7 @@ async fn patch_pdf(
 
 async fn split_pdf_pages(source: &Path) -> Result<Vec<PathBuf>, Error> {
     let dir = source.parent().unwrap();
-    let pattern = dir.join("page-%d.pdf");
+    let pattern = dir.join("page-%02d.pdf");
     let mut child = Command::new("pdftk")
         .arg(source)
         .arg("burst")
@@ -112,9 +112,10 @@ async fn split_pdf_pages(source: &Path) -> Result<Vec<PathBuf>, Error> {
     if !exit_code.success() {
         bail!("Failed to split pages");
     }
-    let pages = glob::glob(dir.join("page-*.pdf").to_string_lossy().as_ref())?
+    let mut pages: Vec<PathBuf> = glob::glob(dir.join("page-*.pdf").to_string_lossy().as_ref())?
         .flatten()
         .collect();
+    pages.sort();
     Ok(pages)
 }
 
