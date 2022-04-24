@@ -164,9 +164,9 @@ async fn add_page_watermark(
     }
 
     let mut child = Command::new("pdftk")
-        .arg(&source)
-        .arg("background")
         .arg(&header_path)
+        .arg("background")
+        .arg(&source)
         .arg("output")
         .arg(&target)
         .spawn()?;
