@@ -15,6 +15,7 @@ use reqwest::{RequestBuilder, StatusCode};
 #[derive(Debug, Clone)]
 pub struct ProxyOptions {
     pub jobs_dir: PathBuf,
+    pub max_pages_per_job: usize,
 }
 
 pub async fn process(
@@ -95,7 +96,16 @@ async fn patch_send_document_message(
     let job = db.new_job(team).await?;
     let mut data = Vec::new();
     message.payload_mut().read_to_end(&mut data)?;
-    let new_payload = match process_pjl_message(db, team, &job, &data, &options.jobs_dir).await {
+    let new_payload = match process_pjl_message(
+        db,
+        team,
+        &job,
+        &data,
+        &options.jobs_dir,
+        options.max_pages_per_job,
+    )
+    .await
+    {
         Ok(new_payload) => new_payload,
         Err(e) => {
             error!(

@@ -9,12 +9,19 @@ use tokio::process::Command;
 
 use crate::db::{Job, Team};
 
+#[derive(Debug, Clone, Copy)]
+pub enum HasBeenTruncated {
+    Yes { original_num_pages: usize },
+    No,
+}
+
 pub async fn process_pjl_message(
     db: &Database<'_>,
     team: &Team,
     job: &Job,
     payload: &[u8],
     jobs_dir: &Path,
+    max_pages: usize,
 ) -> Result<Vec<u8>, Error> {
     let job_dir = jobs_dir.join(format!("job-{}", job.id));
     tokio::fs::create_dir_all(&job_dir).await?;
@@ -49,7 +56,15 @@ pub async fn process_pjl_message(
     write_to_file(&original_pdf_path, pdf).await?;
 
     let patched_pdf_path = job_dir.join("patched-pdf.pdf");
-    patch_pdf(&original_pdf_path, &patched_pdf_path, db, team, job).await?;
+    patch_pdf(
+        &original_pdf_path,
+        &patched_pdf_path,
+        db,
+        team,
+        job,
+        max_pages,
+    )
+    .await?;
 
     let mut new_pdf_content = tokio::fs::read(&patched_pdf_path).await?;
 
@@ -71,9 +86,10 @@ async fn patch_pdf(
     db: &Database<'_>,
     team: &Team,
     job: &Job,
+    max_pages: usize,
 ) -> Result<(), Error> {
     let start = std::time::Instant::now();
-    let pages = split_pdf_pages(source).await?;
+    let (pages, has_been_truncated) = split_pdf_pages(source, max_pages).await?;
     let num_pages = pages.len();
     db.set_pages(job, num_pages).await?;
 
@@ -83,7 +99,14 @@ async fn patch_pdf(
         .collect();
     let results = join_all(pages.iter().zip(targets.iter()).enumerate().map(
         |(page, (source, target))| {
-            add_page_watermark(source.clone(), target.clone(), team, page, num_pages)
+            add_page_watermark(
+                source.clone(),
+                target.clone(),
+                team,
+                page,
+                num_pages,
+                has_been_truncated,
+            )
         },
     ))
     .await;
@@ -99,7 +122,10 @@ async fn patch_pdf(
     Ok(())
 }
 
-async fn split_pdf_pages(source: &Path) -> Result<Vec<PathBuf>, Error> {
+async fn split_pdf_pages(
+    source: &Path,
+    max_pages: usize,
+) -> Result<(Vec<PathBuf>, HasBeenTruncated), Error> {
     let dir = source.parent().unwrap();
     let pattern = dir.join("page-%02d.pdf");
     let mut child = Command::new("pdftk")
@@ -116,7 +142,15 @@ async fn split_pdf_pages(source: &Path) -> Result<Vec<PathBuf>, Error> {
         .flatten()
         .collect();
     pages.sort();
-    Ok(pages)
+    // Truncate the PDF if it contains too many pages.
+    let has_been_truncated = if pages.len() > max_pages {
+        let original_num_pages = pages.len();
+        pages.resize(max_pages, Default::default());
+        HasBeenTruncated::Yes { original_num_pages }
+    } else {
+        HasBeenTruncated::No
+    };
+    Ok((pages, has_been_truncated))
 }
 
 async fn add_page_watermark(
@@ -125,11 +159,12 @@ async fn add_page_watermark(
     team: &Team,
     page: usize,
     num_pages: usize,
+    has_been_truncated: HasBeenTruncated,
 ) -> Result<(), Error> {
     let font_size = 12;
     let position_x = 50;
     let position_y = 20;
-    let text = page_text(team, page, num_pages);
+    let text = page_text(team, page, num_pages, has_been_truncated);
 
     let header_path = target.with_extension("header.pdf");
     let rotated_target = header_path.with_extension("rotated.pdf");
@@ -178,18 +213,29 @@ async fn add_page_watermark(
     Ok(())
 }
 
-fn page_text(team: &Team, page: usize, num_pages: usize) -> String {
+fn page_text(
+    team: &Team,
+    page: usize,
+    num_pages: usize,
+    has_been_truncated: HasBeenTruncated,
+) -> String {
     let name_limit = 30;
     let team_name = if team.team_name.len() < name_limit {
         format!("\"{}\"", team.team_name)
     } else {
         format!("\"{}...\"", &team.team_name[..name_limit])
     };
+    let truncated = if let HasBeenTruncated::Yes { original_num_pages } = has_been_truncated {
+        format!(" (trunc. from {})", original_num_pages)
+    } else {
+        "".into()
+    };
     let text = format!(
-        "{} - Page {} of {} - Team {}",
+        "{} - Page {} of {}{} - Team {}",
         team.location,
         page + 1,
         num_pages,
+        truncated,
         team_name
     )
     .replace(')', "\\)")

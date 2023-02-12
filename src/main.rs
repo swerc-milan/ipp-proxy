@@ -71,6 +71,9 @@ struct Args {
     /// Path to store the jobs.
     #[clap(long, short, default_value = "./jobs")]
     jobs_dir: PathBuf,
+    /// Maximum number of pages per job.
+    #[clap(long, short, default_value_t = 15)]
+    max_pages_per_job: usize,
 }
 
 #[actix_web::main]
@@ -87,6 +90,7 @@ async fn main() -> std::io::Result<()> {
 
     let proxy_options = ProxyOptions {
         jobs_dir: args.jobs_dir,
+        max_pages_per_job: args.max_pages_per_job,
     };
     HttpServer::new(move || {
         App::new()
