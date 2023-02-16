@@ -1,0 +1,36 @@
+#!/bin/bash
+
+if [ -z "$1" ] || ! [ -z "$2" ]
+then
+	echo "Usage: $0 file_to_print"
+	exit 1
+fi
+
+FILE="$1"
+
+[ -f "$FILE" ] || echo "$FILE: not a file"
+[ -f "$FILE" ] || exit 1
+
+SIZE=$(stat -c%s "$FILE")
+
+if [ $SIZE -gt 10000 ]
+then
+	echo -n "$FILE is very big, are you sure you want to print it? [y/N] "
+	read Y
+	if [ "$Y" != "y" ] && [ "$Y" != "Y" ]
+	then
+		exit 2
+	fi
+fi
+
+if ! grep -qI . "$FILE"
+then
+	echo -n "$FILE is not a text file, are you sure you want to print it? [y/N] "
+	read Y
+	if [ "$Y" != "y" ] && [ "$Y" != "Y" ]
+	then
+		exit 2
+	fi
+fi
+
+lpr -P Printer -l "$FILE"
