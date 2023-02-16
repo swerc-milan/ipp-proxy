@@ -1,0 +1,18 @@
+[Unit]
+Description=ipp-proxy
+After=network.target
+
+[Service]
+User=swerc
+Group=swerc
+ExecStart=/home/swerc/ipp-proxy/target/release/ipp-proxy
+WorkingDirectory=/home/swerc/ipp-proxy/target/release
+Restart=always
+
+# don't retry too often (default is 100ms)
+RestartSec=10
+# disable any rate limiting
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=multi-user.target
