@@ -33,4 +33,15 @@ then
 	fi
 fi
 
-lpr -P Printer -l "$FILE"
+TMP=$(mktemp -d)
+
+cleanup() {
+	rm -rf $TMP
+}
+
+trap cleanup EXIT
+
+enscript -p $TMP/x.ps "$FILE" &>/dev/null
+ps2pdf $TMP/x.ps $TMP/x.pdf &>/dev/null
+
+lpr -P Printer -l $TMP/x.pdf
